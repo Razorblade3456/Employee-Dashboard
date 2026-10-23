@@ -539,6 +539,23 @@ export function Payroll({
       setTo(addDays(addMonths(first, 1), -1));
     }
   }
+  const [exporting, setExporting] = useState(false);
+  async function downloadWorkbook() {
+    setExporting(true);
+    try {
+      const { downloadExcel } = await import("@/lib/excel-export");
+      await downloadExcel(d, store.role!, {
+        from,
+        to,
+        employeeIds: people.map((p) => p.id),
+      });
+      store.notify("Excel workbook downloaded");
+    } catch (e) {
+      store.setError((e as Error).message);
+    } finally {
+      setExporting(false);
+    }
+  }
   function download() {
     const header = [
       "Employee",
@@ -619,10 +636,20 @@ export function Payroll({
           title="Payroll, with perspective."
           description="Estimates before taxes and deductions. Missing rates must be resolved before relying on totals."
           action={
-            <button className="button" onClick={download}>
-              <Download size={16} />
-              Export CSV
-            </button>
+            <div className="export-actions">
+              <button
+                className="button primary"
+                onClick={() => void downloadWorkbook()}
+                disabled={exporting}
+              >
+                <Download size={16} />
+                {exporting ? "Preparing…" : "Export Excel"}
+              </button>
+              <button className="button" onClick={download}>
+                <Download size={16} />
+                CSV
+              </button>
+            </div>
           }
         />
         <div className="table-filters">

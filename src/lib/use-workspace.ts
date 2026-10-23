@@ -4,10 +4,18 @@ import { Data, Role, Table, uid } from "./types";
 import { demoData, demoEmployeeId } from "./demo";
 import { supabase, configured } from "./supabase";
 import { bounds } from "./time";
+import {
+  credential,
+  credentialKey,
+  verifyPasscode,
+  rotatePasscode,
+  ProtectedRole,
+} from "./demo-passcodes";
 import { validateRecord } from "./validation";
 export function useWorkspace() {
   const [data, setData] = useState<Data | null>(null),
     [role, setRole] = useState<Role | null>(null),
+    [requestedRole, setRequestedRole] = useState<ProtectedRole | null>(null),
     [employeeId, setEmployeeId] = useState(demoEmployeeId),
     [accountName, setAccountName] = useState(""),
     [error, setError] = useState(""),
@@ -157,9 +165,17 @@ export function useWorkspace() {
     try {
       const saved = localStorage.getItem("gather-demo-v1");
       setData(saved ? JSON.parse(saved) : demoData());
-      const r = localStorage.getItem("gather-demo-role");
-      if (r && ["manager", "employee", "accountant"].includes(r))
-        setRole(r as Role);
+      localStorage.removeItem("gather-demo-role");
+      const rawSession = sessionStorage.getItem("gather-demo-session-v2");
+      if (rawSession) {
+        const session = JSON.parse(rawSession);
+        if (session.role === "employee") setRole("employee");
+        else if (
+          ["manager", "accountant"].includes(session.role) &&
+          session.revision === credential(localStorage, session.role).revision
+        )
+          setRole(session.role);
+      }
     } catch {
       setError(
         "Demo data could not be loaded. Clear this site’s demo storage to start again.",
@@ -204,14 +220,54 @@ export function useWorkspace() {
           setData(JSON.parse(event.newValue));
         } catch {}
       }
+      if (role && role !== "employee" && event.key === credentialKey(role)) {
+        setRole(null);
+        setRequestedRole(role);
+        sessionStorage.removeItem("gather-demo-session-v2");
+      }
     };
     window.addEventListener("storage", sync);
     return () => window.removeEventListener("storage", sync);
-  }, [live]);
-  function chooseRole(r: Role) {
-    if (live) return;
+  }, [live, role]);
+  function rememberRole(r: Role) {
+    sessionStorage.setItem(
+      "gather-demo-session-v2",
+      JSON.stringify({
+        role: r,
+        revision:
+          r === "employee" ? null : credential(localStorage, r).revision,
+      }),
+    );
     setRole(r);
-    localStorage.setItem("gather-demo-role", r);
+  }
+  function chooseRole(r: Role) {
+    if (live || r === role) return;
+    if (r === "employee") {
+      rememberRole(r);
+      setRequestedRole(null);
+    } else setRequestedRole(r);
+  }
+  const cancelRole = useCallback(() => setRequestedRole(null), []);
+  async function unlockRole(passcode: string) {
+    if (live || !requestedRole)
+      throw Error("No local role is awaiting access.");
+    if (!(await verifyPasscode(localStorage, requestedRole, passcode)))
+      throw Error("Incorrect passcode. Please try again.");
+    rememberRole(requestedRole);
+    setRequestedRole(null);
+  }
+  async function changeDemoPasscode(
+    current: string,
+    next: string,
+    confirmation: string,
+  ) {
+    if (live || !role || role === "employee")
+      throw Error(
+        "Only local manager and accountant roles can change these passcodes.",
+      );
+    await rotatePasscode(localStorage, role, current, next, confirmation);
+    rememberRole(role);
+    notify("Passcode updated. Use the new code next time you sign in.");
   }
   async function signOut() {
     if (live) {
@@ -224,7 +280,8 @@ export function useWorkspace() {
       setData(null);
     } else {
       setRole(null);
-      localStorage.removeItem("gather-demo-role");
+      sessionStorage.removeItem("gather-demo-session-v2");
+      setRequestedRole(null);
     }
   }
   async function save(table: Table, record: Data[Table][number]) {
@@ -485,6 +542,10 @@ export function useWorkspace() {
     loading,
     message,
     chooseRole,
+    requestedRole,
+    cancelRole,
+    unlockRole,
+    changeDemoPasscode,
     signOut,
     save,
     remove,

@@ -28,6 +28,7 @@ import {
   CalendarCheck2,
   ShieldCheck,
   Coffee,
+  Download,
 } from "lucide-react";
 import { useWorkspace } from "@/lib/use-workspace";
 import { Role } from "@/lib/types";
@@ -55,6 +56,9 @@ import Schedule, { conflicts } from "./schedule";
 import EditorDialog, { Editor } from "./editor";
 import { Team, Notes, Timesheets, Payroll } from "./data-views";
 import SettingsView from "./settings";
+import PasscodeDialog from "./passcode-dialog";
+import ExportDialog from "./export-dialog";
+import { useTheme } from "@/lib/use-theme";
 type Tab =
   | "overview"
   | "schedule"
@@ -107,8 +111,9 @@ const nav = [
 ];
 export default function Workspace() {
   const store = useWorkspace(),
+    theme = useTheme(),
+    [exportOpen, setExportOpen] = useState(false),
     [tab, setTab] = useState<Tab>("overview"),
-    [dark, setDark] = useState(false),
     [editor, setEditor] = useState<Editor | null>(null),
     [mobile, setMobile] = useState(false),
     [roleMenu, setRoleMenu] = useState(false),
@@ -116,21 +121,11 @@ export default function Workspace() {
       null,
     ),
     [query, setQuery] = useState("");
-  useEffect(() => {
-    setDark(localStorage.getItem("gather-theme") === "dark");
-  }, []);
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark);
-  }, [dark]);
-  function toggle() {
-    setDark((v) => {
-      localStorage.setItem("gather-theme", !v ? "dark" : "light");
-      return !v;
-    });
-  }
+  const { dark, toggle } = theme;
   useEffect(() => {
     setTab("overview");
     setEditor(null);
+    setExportOpen(false);
     setRoleMenu(false);
   }, [store.role]);
   const closeEditor = useCallback(() => setEditor(null), []);
@@ -152,6 +147,9 @@ export default function Workspace() {
     return (
       <>
         <Login store={store} dark={dark} toggle={toggle} />
+        {store.requestedRole && (
+          <PasscodeDialog key={store.requestedRole} store={store} />
+        )}
         {store.error && (
           <div className="toast error" role="alert">
             {store.error}
@@ -231,7 +229,13 @@ export default function Workspace() {
           <div className="role-menu">
             <small>DEMO PERSPECTIVE</small>
             {(["manager", "employee", "accountant"] as Role[]).map((r) => (
-              <button key={r} onClick={() => store.chooseRole(r)}>
+              <button
+                key={r}
+                onClick={() => {
+                  setRoleMenu(false);
+                  store.chooseRole(r);
+                }}
+              >
                 {r[0].toUpperCase() + r.slice(1)}
                 {role === r && <Check size={14} />}
               </button>
@@ -325,11 +329,12 @@ export default function Workspace() {
               {store.live ? "Connected" : "Local demo"}
             </span>
             <button
-              className="icon-button"
-              aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+              className="button small theme-control"
+              aria-label={dark ? "Switch to day mode" : "Switch to night mode"}
               onClick={toggle}
             >
-              {dark ? <Sun size={18} /> : <Moon size={18} />}
+              {dark ? <Moon size={16} /> : <Sun size={16} />}
+              <span>{dark ? "Night" : "Day"}</span>
             </button>
             <button
               className="icon-button notification-button"
@@ -399,6 +404,12 @@ export default function Workspace() {
               </p>
             </div>
             <div className="page-heading-actions">
+              {!employee && (
+                <button className="button" onClick={() => setExportOpen(true)}>
+                  <Download size={16} />
+                  Export Excel
+                </button>
+              )}
               {role === "manager" && ["overview", "schedule"].includes(tab) && (
                 <button
                   className="button primary"
@@ -475,7 +486,7 @@ export default function Workspace() {
           {tab === "payroll" && accountant && (
             <Payroll store={store} edit={setEditor} />
           )}
-          {tab === "settings" && <SettingsView store={store} />}
+          {tab === "settings" && <SettingsView store={store} theme={theme} />}
           <footer className="workspace-footer">
             <span>
               <Layers size={13} />
@@ -490,6 +501,12 @@ export default function Workspace() {
           </footer>
         </main>
       </div>
+      {store.requestedRole && (
+        <PasscodeDialog key={store.requestedRole} store={store} />
+      )}
+      {exportOpen && (
+        <ExportDialog store={store} close={() => setExportOpen(false)} />
+      )}
       {editor && (
         <EditorDialog
           key={JSON.stringify(editor)}
@@ -612,7 +629,7 @@ export default function Workspace() {
               <div className="notice">
                 {store.live
                   ? "Your Supabase connection is active. Role access is enforced by database policies."
-                  : "This is a local demo with fictional sample data. The role switcher is for exploring; it is not an authentication boundary."}
+                  : "This is a local demo with fictional sample data. The local passcodes are demo convenience locks; they do not replace secure account authentication."}
               </div>
               <p>
                 To connect real accounts and persistent storage, follow the

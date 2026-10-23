@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
   poweredByHeader: false,
+  distDir: process.env.GATHER_BUILD_DIR || ".gather-build",
   devIndicators: false,
   turbopack: { root: process.cwd() },
   async headers() {

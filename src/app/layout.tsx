@@ -11,8 +11,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <body>
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var p=localStorage.getItem('gather-theme-preference'),old=localStorage.getItem('gather-theme');if(!p)p=old==='dark'?'night':old==='light'?'day':'system';document.documentElement.classList.toggle('dark',p==='night'||(p==='system'&&matchMedia('(prefers-color-scheme: dark)').matches));}catch(e){}",
+          }}
+        />
+        {children}
+      </body>
     </html>
   );
 }

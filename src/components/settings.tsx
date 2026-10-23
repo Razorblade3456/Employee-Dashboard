@@ -1,11 +1,27 @@
 "use client";
 import { useState } from "react";
-import { Save, ShieldCheck, Globe, KeyRound, ScrollText } from "lucide-react";
+import {
+  Save,
+  ShieldCheck,
+  Globe,
+  KeyRound,
+  ScrollText,
+  Sun,
+  Moon,
+  Monitor,
+} from "lucide-react";
 import { WorkspaceStore } from "@/lib/use-workspace";
 import { supabase } from "@/lib/supabase";
 import { PanelTitle, Badge, Empty } from "./ui";
 import { today } from "@/lib/time";
-export default function SettingsView({ store }: { store: WorkspaceStore }) {
+import { ThemeController } from "@/lib/use-theme";
+export default function SettingsView({
+  store,
+  theme,
+}: {
+  store: WorkspaceStore;
+  theme: ThemeController;
+}) {
   const d = store.data!,
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
@@ -72,10 +88,16 @@ export default function SettingsView({ store }: { store: WorkspaceStore }) {
         store.notify("Account password updated");
       }
       if (type === "code") {
-        if (!supabase)
-          throw Error(
-            "Demo role switching has no authentication codes. Configure Supabase for secure account settings.",
+        if (!store.live) {
+          await store.changeDemoPasscode(
+            s("current_code"),
+            s("new_code"),
+            s("confirm_code"),
           );
+          form.reset();
+          return;
+        }
+        if (!supabase) throw Error("Account connection is unavailable.");
         const { error } = await supabase.rpc("change_access_code", {
           p_current: s("current_code"),
           p_new: s("new_code"),
@@ -95,6 +117,50 @@ export default function SettingsView({ store }: { store: WorkspaceStore }) {
   return (
     <div className="settings-layout">
       <div className="settings-main">
+        <section className="panel">
+          <PanelTitle
+            title="Day or night. Your preference."
+            description="Choose a viewing theme. Your preference is saved in this browser."
+          />
+          <div className="appearance-options">
+            {(
+              [
+                {
+                  value: "day",
+                  label: "Day",
+                  detail: "A bright, clear workspace",
+                  icon: Sun,
+                },
+                {
+                  value: "night",
+                  label: "Night",
+                  detail: "A softer view after dark",
+                  icon: Moon,
+                },
+                {
+                  value: "system",
+                  label: "System",
+                  detail: "Follow your device theme",
+                  icon: Monitor,
+                },
+              ] as const
+            ).map(({ value, label, detail, icon: Icon }) => (
+              <button
+                key={value}
+                className={
+                  "appearance-option " +
+                  (theme.preference === value ? "active" : "")
+                }
+                aria-pressed={theme.preference === value}
+                onClick={() => theme.setPreference(value)}
+              >
+                <Icon size={22} />
+                <strong>{label}</strong>
+                <small>{detail}</small>
+              </button>
+            ))}
+          </div>
+        </section>
         {error && (
           <p className="form-error panel" role="alert">
             {error}
@@ -287,7 +353,7 @@ export default function SettingsView({ store }: { store: WorkspaceStore }) {
             description={
               store.live
                 ? "Manage your account credentials."
-                : "Demo mode uses sample identities, without account passwords."
+                : "Manager and accountant demo workspaces have changeable local passcodes."
             }
           />
           {store.live ? (
@@ -328,15 +394,16 @@ export default function SettingsView({ store }: { store: WorkspaceStore }) {
               roles.
             </div>
           )}
-          {store.role !== "employee" && store.live && (
+          {store.role !== "employee" && (
             <form
               className="settings-form"
               onSubmit={(e) => void submit(e, "code")}
             >
-              <h3>Role access code</h3>
+              <h3>{store.live ? "Role access code" : "Workspace passcode"}</h3>
               <p className="fine-print">
-                This code is an additional setup credential; it never replaces
-                account authentication.
+                {store.live
+                  ? "This code is an additional setup credential; it never replaces account authentication."
+                  : "Change this role’s local passcode. You must enter the current code, and the new code will be required when you next unlock this workspace."}
               </p>
               <div className="form-pair">
                 <label>
@@ -348,12 +415,25 @@ export default function SettingsView({ store }: { store: WorkspaceStore }) {
                   <input
                     type="password"
                     name="new_code"
-                    minLength={8}
+                    minLength={store.live ? 8 : 4}
                     maxLength={128}
                     required
                   />
                 </label>
               </div>
+              {!store.live && (
+                <label>
+                  Confirm new code
+                  <input
+                    type="password"
+                    name="confirm_code"
+                    minLength={4}
+                    maxLength={128}
+                    autoComplete="new-password"
+                    required
+                  />
+                </label>
+              )}
               <button className="button" disabled={busy}>
                 Change access code
               </button>

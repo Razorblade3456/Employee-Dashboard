@@ -12,13 +12,25 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5190. Choose Employee, Manager, or Accountant. No setup credentials are required in demo mode. Demo changes persist in this browser at this exact host and port and synchronize between tabs. The demo role switcher is a preview feature, not an authentication boundary. Use fictional data only. To reset the demo, remove the `gather-demo-v1` and `gather-demo-role` keys in your browser's site storage.
+Open http://localhost:5190. Choose Employee, Manager, or Accountant. In local demo mode, **Manager starts with passcode 1234** and **Accountant starts with passcode 5678**. Employee viewing does not require a demo code. The same code prompt protects the role switcher. Change each role’s code in **Settings → Workspace passcode** using the current code and matching new-code confirmation (4–128 characters). Changed codes are stored as salted PBKDF2 hashes in this browser. Sessions are scoped to the current tab; sign-out or opening a new tab requires the role’s current code. Changing a code revokes that role’s other open demo tabs.
+
+Demo changes persist in this browser at this exact host and port and synchronize between tabs. Demo passcodes are convenience locks, not a production authentication boundary. Use fictional data only. Live deployments continue to require verified Supabase accounts and backend authorization; four-digit codes are never a replacement.
+
+Choose **Day**, **Night**, or **System** in Settings. The clearly labeled Day/Night button in the header switches immediately. The preference persists across refreshes, applies to all roles, and follows your device when System is selected.
+
+Use **Export Excel** in either Manager or Accountant to choose a date range and employee scope. Manager workbooks contain Team, Schedule, Publication dates, Management notes, and Actual time entries, with no payroll rates. Accountant workbooks contain Payroll estimates, Pay rate history, Payroll policy, and Actual time entries, with no management notes. A Report sheet records period, timezone, and estimate caveats. The payroll table also has **Export Excel**, respecting its current date/department/employee filters; CSV remains available.
+
+Exports are real .xlsx snapshots with numeric hours and pay, formatted headers, filters, and frozen headings. They are not a live database backup or an editable payroll engine.
+
+To reset only a forgotten demo passcode, remove that role’s browser site-storage key: gather-demo-passcode-v1-manager or gather-demo-passcode-v1-accountant. This restores the original role code without deleting schedules. To reset sample records, remove gather-demo-v1. Day/night preferences use gather-theme-preference. Existing older demo sessions are deliberately not reused after this update.
+
+Development and production builds use the supported Webpack bundler and a fresh .gather-build cache directory to avoid Windows/OneDrive junction problems. GATHER_BUILD_DIR can select a separate build directory for an isolated preview.
 
 ## What works
 
 - **Employee:** own published monthly/weekly/daily schedule; confirmed days off, pending dates, next shift, weekly/monthly scheduled hours. No editing, management notes, or payroll.
 - **Manager:** employee search/department/status filtering; add/edit/deactivate employees; month/week/day team or individual scheduling; drag shifts to another date/member; create/edit/copy/delete shifts; duplicate whole weeks; publish a date range; overlap warnings including overnight boundaries; minimum daily staffing warnings; private dated operational notes; actual time entry and approval.
-- **Accountant:** effective-dated hourly rates; actual-time entry, review, and approvals; payroll period/employee/department filters; regular/overtime/double-time hours; gross estimates and pay-by-employee chart; Excel-compatible CSV with formula-injection protection.
+- **Accountant:** effective-dated hourly rates; actual-time entry, review, and approvals; payroll period/employee/department filters; regular/overtime/double-time hours; gross estimates and pay-by-employee chart; Excel workbooks and Excel-compatible CSV with formula-injection protection.
 - **All roles:** distinct overview, light/dark themes, responsive navigation, search/jump menu, activity/help dialogs, settings.
 - **Live data:** separate tables, RLS policies, audit triggers, publication RPC, atomic week duplication, real-time subscriptions plus 20-second refresh fallback.
 

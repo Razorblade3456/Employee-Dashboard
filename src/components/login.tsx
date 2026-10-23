@@ -105,11 +105,12 @@ export default function Login({
           gather<span className="brand-dot">.</span>
         </a>
         <button
-          className="icon-button"
+          className="button small theme-control"
           onClick={toggle}
-          aria-label="Toggle color theme"
+          aria-label="Toggle day and night theme"
         >
-          {dark ? <Sun size={20} /> : <Moon size={20} />}
+          {dark ? <Moon size={18} /> : <Sun size={18} />}
+          <span>{dark ? "Night" : "Day"}</span>
         </button>
       </header>
       <main className="login-main">
@@ -178,7 +179,7 @@ export default function Login({
           <p>
             {store.live
               ? "Choose your workspace and sign in with your account."
-              : "Explore the sample workspace. Choose a perspective to begin."}
+              : "Explore the sample workspace. Choose a role to begin. Manager and accountant access requires a passcode."}
           </p>
           {selected && store.live ? (
             <form onSubmit={submit} className="auth-form">
@@ -311,7 +312,7 @@ export default function Login({
             <span>
               {store.live
                 ? "Secure accounts. Permissions enforced in the database."
-                : "LOCAL DEMO · Sample data saved only in this browser. Role switching is for exploration, not authentication."}
+                : "LOCAL DEMO · Sample data saved only in this browser. Passcodes are local demo locks, not production account authentication."}
             </span>
           </div>
         </section>
