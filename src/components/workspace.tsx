@@ -56,6 +56,7 @@ import Schedule, { conflicts } from "./schedule";
 import EditorDialog, { Editor } from "./editor";
 import { Team, Notes, Timesheets, Payroll } from "./data-views";
 import SettingsView from "./settings";
+import RoleTutorial from "./tutorial";
 import PasscodeDialog from "./passcode-dialog";
 import ExportDialog from "./export-dialog";
 import { useTheme } from "@/lib/use-theme";
@@ -187,7 +188,16 @@ export default function Workspace() {
     )
     .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
   const conflictIds =
-    role === "manager" ? conflicts(d.shifts, d.settings.timezone) : new Set();
+    role === "manager"
+      ? conflicts(
+          d.shifts.filter(
+            (s) =>
+              s.date >= addDays(weekStart(date), -1) &&
+              s.date <= addDays(weekStart(date), 7),
+          ),
+          d.settings.timezone,
+        )
+      : new Set();
   const pending = d.schedule_days.filter(
     (s) => s.status !== "published",
   ).length;
@@ -262,18 +272,6 @@ export default function Workspace() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="sidebar-tip">
-            <span className="tip-stars">✧</span>
-            <strong>A little more in sync.</strong>
-            <p>
-              {employee
-                ? "Your workday, all in one place."
-                : "Great teams start with a little clarity."}
-            </p>
-            <button onClick={() => setOverlay("help")}>
-              Meet your workspace <ArrowUpRight size={14} />
-            </button>
-          </div>
           <button
             className={"nav-item " + (tab === "settings" ? "selected" : "")}
             onClick={() => navigate("settings")}
@@ -486,7 +484,13 @@ export default function Workspace() {
           {tab === "payroll" && accountant && (
             <Payroll store={store} edit={setEditor} />
           )}
-          {tab === "settings" && <SettingsView store={store} theme={theme} />}
+          {tab === "settings" && (
+            <SettingsView
+              store={store}
+              theme={theme}
+              onTutorial={() => setOverlay("help")}
+            />
+          )}
           <footer className="workspace-footer">
             <span>
               <Layers size={13} />
@@ -522,7 +526,7 @@ export default function Workspace() {
               ? "Find your way"
               : overlay === "activity"
                 ? "Workspace activity"
-                : "Welcome to Gather"
+                : "How to Use This Dashboard"
           }
           onClose={() => setOverlay(null)}
         >
@@ -615,40 +619,7 @@ export default function Workspace() {
               )}
             </div>
           ) : (
-            <div className="help-content">
-              <span className="section-icon">
-                <Layers size={26} />
-              </span>
-              <h3>A calmer place to bring work together.</h3>
-              <p>
-                Managers plan and publish schedules, keep team records, and
-                review actual time. Employees see only their published schedule.
-                Accountants manage pay rates and estimate gross pay from
-                approved actual hours.
-              </p>
-              <div className="notice">
-                {store.live
-                  ? "Your Supabase connection is active. Role access is enforced by database policies."
-                  : "This is a local demo with fictional sample data. The local passcodes are demo convenience locks; they do not replace secure account authentication."}
-              </div>
-              <p>
-                To connect real accounts and persistent storage, follow the
-                project README and run the Supabase migration. The initial role
-                setup requires a verified account, a private server secret, and
-                the role setup code.
-              </p>
-              <p className="fine-print">
-                Payroll totals are estimates before tax and deductions.
-                Configure company policy before use. Demo data remains on the
-                exact browser and origin you are using.
-              </p>
-              <button
-                className="button primary"
-                onClick={() => navigate("settings")}
-              >
-                Open settings <ArrowRight size={15} />
-              </button>
-            </div>
+            <RoleTutorial key={role} role={role} onNavigate={navigate} />
           )}
         </Modal>
       )}

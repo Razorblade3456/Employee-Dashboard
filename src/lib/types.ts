@@ -1,6 +1,7 @@
 export type Role = "employee" | "manager" | "accountant";
 export type Status = "draft" | "published" | "pending";
 export interface Employee {
+  revision?: number;
   id: string;
   name: string;
   email: string;
@@ -11,6 +12,7 @@ export interface Employee {
   user_id?: string | null;
 }
 export interface Shift {
+  revision?: number;
   id: string;
   employee_id: string;
   date: string;
@@ -20,11 +22,13 @@ export interface Shift {
   status: Status;
 }
 export interface ScheduleDay {
+  revision?: number;
   id: string;
   date: string;
   status: Status;
 }
 export interface Note {
+  revision?: number;
   id: string;
   employee_id: string;
   kind: "Call-off" | "Late arrival" | "Schedule change" | "General";
@@ -32,6 +36,7 @@ export interface Note {
   created_at: string;
 }
 export interface TimeEntry {
+  revision?: number;
   id: string;
   employee_id: string;
   date: string;
@@ -43,12 +48,14 @@ export interface TimeEntry {
   approved: boolean;
 }
 export interface PayRate {
+  revision?: number;
   id: string;
   employee_id: string;
   hourly_rate: number;
   effective_date: string;
 }
 export interface Rules {
+  revision?: number;
   id: string;
   location: string;
   weekly_threshold: number;
@@ -59,6 +66,7 @@ export interface Rules {
   week_starts: number;
 }
 export interface Settings {
+  revision?: number;
   id: string;
   name: string;
   timezone: string;

@@ -41,7 +41,8 @@ export function bounds(date: string, start: string, end: string, zone: string) {
   const a = Temporal.ZonedDateTime.from(date + "T" + start + "[" + zone + "]", {
     disambiguation: "reject",
   });
-  const endDate = end <= start ? addDays(date, 1) : date;
+  const endDate =
+    Temporal.PlainTime.compare(end, start) <= 0 ? addDays(date, 1) : date;
   const b = Temporal.ZonedDateTime.from(
     endDate + "T" + end + "[" + zone + "]",
     { disambiguation: "reject" },

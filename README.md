@@ -126,3 +126,45 @@ Tests include payroll allocation, pay-rate history, midweek filters, overnight w
 - `tests/`: calculation and real PostgreSQL permission tests.
 
 Primary references: [Next.js](https://nextjs.org/docs), [Supabase RLS](https://supabase.com/docs/guides/database/postgres/row-level-security), [Supabase Auth](https://supabase.com/docs/guides/auth), [PGlite extensions](https://pglite.dev/extensions/).
+
+## Year simulation and reliability review
+
+This update keeps the existing schedules, employees, payroll estimates, authentication, and browser-storage keys. All verification uses fictional data, an isolated browser on port 5197, and disposable embedded PostgreSQL. Tests do not connect to hosted Supabase.
+
+- Settings → **How to Use This Dashboard** opens a role-specific, optional guide with short steps and examples. The Help shortcut opens the same guide. Closing it preserves the Settings form underneath.
+- Demo writes use Web Locks to read the latest stored workspace, validate an operation, then persist it before reporting success. Storage events no longer write received state back to storage. A stale record edit is rejected instead of overwriting another tab. Browsers without Web Locks fail safely for demo editing.
+- Week copying is atomic in demo mode as well as live mode; inactive employees are excluded. Existing shifts remain and conflicts stay visible.
+- Managers' Timesheets identify published shifts without an actual entry. Missing hours are never invented or automatically paid. Accountants retain their existing data boundary; this schedule-derived warning is manager-only.
+- Conflict detection groups employees and sweeps intervals, including overnight boundaries. Displayed schedules check adjacent dates. Payroll calculations process only the relevant workweeks and reuse sorted rate history.
+- Input validation is shared with demo mutations; invalid policy numbers, duplicate effective rates, overlapping actual entries, and unauthorized writes are rejected. Payroll badges do not mark missing time or missing rates as reviewed.
+
+### Safe live database rollout
+
+For an existing live workspace, back up the database, then apply **only** `supabase/migrations/002_record_revisions.sql` after the existing 001 migration. New projects run 001 followed by 002. The additive migration adds revision counters and update triggers; it does not delete employee, schedule, or payroll records, change passwords, or assign roles. Close old application tabs and deploy the matching frontend after migration. Without revision columns, this frontend refuses affected live edits rather than silently overwriting records. The migration was tested against disposable PostgreSQL, not applied to your hosted project.
+
+Live updates and deletes include the record's expected revision. If another user changes it first, the operation saves nothing and asks the user to review the latest record. This protects individual records; publishing a range and copying a week remain atomic database operations, not a complete collaborative schedule-diff workflow.
+
+### Reproduce verification
+
+```powershell
+npm ci
+npm test
+npm run typecheck
+npm run build
+# Install a disposable Playwright browser once, or select an existing Edge installation:
+npx playwright install chromium
+npm run test:browser
+# Windows alternative:
+$env:PLAYWRIGHT_BROWSER_CHANNEL = 'msedge'
+npm run test:browser
+# The year simulation can also run independently:
+npm run test:simulation
+```
+
+`SIMULATION_REPORT` can point to a JSON report file. `BROWSER_REPORT_DIR` selects browser screenshots and result files (default `.test-results/`). Browser tests launch the isolated production build, use fresh browser contexts, and clear public Supabase connection variables. Build the isolated copy without `.env.local` or live connection variables. Do not run simulations against an existing staff database or browser profile.
+
+The deterministic accelerated 2026 simulation uses 30 active fictional employees, four manager identities and two accounting identities, with six employee replacements. The shared mutation engine exercises 365 days, and independent hour-conservation checks verify pay-period totals. Dedicated tests cover DST, actual database RLS, export confidentiality, and stale updates from different managers. The browser suite checks all three roles at desktop and mobile widths, concurrent tabs, schedule publication, and payroll export. This is not proof of a literal year of hosted uptime or an external production load test.
+
+### Production limits that remain
+
+Local demo passcodes are convenience locks, not real employee authentication. Live operation still requires verified Supabase accounts, RLS, backups, and deployment-specific Auth/Realtime checks. Existing policy settings recalculate historical estimates; effective-dated policy versions, immutable finalized-payroll snapshots, statutory payroll processing, and time-off approval workflows would require a separate scoped feature/migration. All current payroll output remains **estimated gross pay**, not finalized payroll. Preserve reviewed exports and finalize payroll through the company's payroll process.

@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
+import { attendanceGaps } from "@/lib/attendance";
 import {
   Search,
   Plus,
@@ -306,6 +307,15 @@ export function Timesheets({
       e.adjustment_minutes / 60,
     0,
   );
+  const missing =
+    store.role === "manager"
+      ? attendanceGaps(
+          d,
+          from,
+          to < today(d.settings.timezone) ? to : today(d.settings.timezone),
+          person,
+        )
+      : [];
   async function approve(id: string) {
     const e = d.time_entries.find((e) => e.id === id)!;
     try {
@@ -329,6 +339,30 @@ export function Timesheets({
           </button>
         }
       />
+      {missing.length > 0 && (
+        <div className="notice" role="status">
+          <AlertTriangle size={18} />
+          <span>
+            <strong>
+              {missing.length} published shifts have no actual time entry.
+            </strong>
+            <br />
+            Review with the employee before approving payroll. Scheduled hours
+            are not automatically paid.
+            <details>
+              <summary>Show missing entries</summary>
+              <ul>
+                {missing.map((s) => (
+                  <li key={s.id}>
+                    {d.employees.find((e) => e.id === s.employee_id)?.name} ·{" "}
+                    {s.date} · {timeLabel(s.start)}–{timeLabel(s.end)}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </span>
+        </div>
+      )}
       <div className="table-filters">
         <select
           aria-label="Timesheet employee"
@@ -771,8 +805,18 @@ export function Payroll({
                       )}
                     </td>
                     <td>
-                      <Badge tone={r?.pending ? "amber" : "green"}>
-                        {r?.pending ? n(r.pending) + "h pending" : "Reviewed"}
+                      <Badge
+                        tone={
+                          !r || r.pending || r.missingRate ? "amber" : "green"
+                        }
+                      >
+                        {!r
+                          ? "No actual time"
+                          : r.missingRate
+                            ? "Missing rate"
+                            : r.pending
+                              ? n(r.pending) + "h pending"
+                              : "Estimate reviewed"}
                       </Badge>
                     </td>
                     <td>
@@ -858,8 +902,17 @@ export function Payroll({
                 </span>
               </p>
               <p>
-                <span className="check-circle complete">
-                  <Check size={15} />
+                <span
+                  className={
+                    "check-circle " +
+                    (shown.some((r) => r.missingRate) ? "" : "complete")
+                  }
+                >
+                  {shown.some((r) => r.missingRate) ? (
+                    <AlertTriangle size={15} />
+                  ) : (
+                    <Check size={15} />
+                  )}
                 </span>
                 <span>
                   <strong>Use effective-dated pay rates</strong>

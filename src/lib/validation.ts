@@ -92,3 +92,44 @@ export function validateRecord(table: string, record: unknown, zone: string) {
       .parse(record);
   return record;
 }
+
+export function validateSettings(
+  table: "company_settings" | "payroll_rules",
+  value: unknown,
+) {
+  if (table === "company_settings")
+    return z
+      .object({
+        id: z.literal("company"),
+        name: z.string().trim().min(1).max(80),
+        timezone: z.string().refine((zone) => {
+          try {
+            new Intl.DateTimeFormat("en", { timeZone: zone });
+            return true;
+          } catch {
+            return false;
+          }
+        }, "Unknown timezone"),
+        minimum_staff: number.int().min(0).max(1000),
+      })
+      .parse(value);
+  return z
+    .object({
+      id: z.literal("company"),
+      location: z.string().trim().min(1).max(100),
+      weekly_threshold: number.positive().max(168),
+      daily_threshold: number.min(0).max(24),
+      double_threshold: number.min(0).max(24),
+      overtime_multiplier: number.min(1).max(5),
+      double_multiplier: number.min(1).max(5),
+      week_starts: number.int().min(0).max(6),
+    })
+    .refine(
+      (v) =>
+        !v.double_threshold ||
+        !v.daily_threshold ||
+        v.double_threshold >= v.daily_threshold,
+      "Double-time threshold must follow daily overtime",
+    )
+    .parse(value);
+}

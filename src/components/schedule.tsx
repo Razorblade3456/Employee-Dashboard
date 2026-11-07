@@ -21,31 +21,11 @@ import {
   labelDate,
   timeLabel,
   hours,
-  bounds,
 } from "@/lib/time";
 import { Avatar, Badge, n } from "./ui";
 import { Editor } from "./editor";
-export function conflicts(shifts: Shift[], zone: string) {
-  const ids = new Set<string>();
-  for (let i = 0; i < shifts.length; i++)
-    for (let j = i + 1; j < shifts.length; j++) {
-      const a = shifts[i],
-        b = shifts[j];
-      if (a.employee_id !== b.employee_id) continue;
-      try {
-        const x = bounds(a.date, a.start, a.end, zone),
-          y = bounds(b.date, b.start, b.end, zone);
-        if (x.start < y.end && y.start < x.end) {
-          ids.add(a.id);
-          ids.add(b.id);
-        }
-      } catch {
-        ids.add(a.id);
-        ids.add(b.id);
-      }
-    }
-  return ids;
-}
+export { conflicts } from "@/lib/scheduling";
+import { conflicts } from "@/lib/scheduling";
 export default function Schedule({
   store,
   edit,
@@ -99,8 +79,16 @@ export default function Schedule({
         (shiftTime === "morning" ? s.start < "12:00" : s.start >= "12:00")),
   );
   const conflictIds = useMemo(
-    () => conflicts(d.shifts, d.settings.timezone),
-    [d.shifts, d.settings.timezone],
+    () =>
+      conflicts(
+        d.shifts.filter(
+          (s) =>
+            s.date >= addDays(days[0], -1) &&
+            s.date <= addDays(days.at(-1)!, 1),
+        ),
+        d.settings.timezone,
+      ),
+    [d.shifts, d.settings.timezone, days[0], days.at(-1)],
   );
   const scoped = visible.filter((s) => s.date >= start && s.date <= end),
     total = scoped.reduce(

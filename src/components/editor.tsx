@@ -46,6 +46,7 @@ export default function EditorDialog({
       if (kind === "shift") {
         const value: Shift = {
           id: record?.id || uid(),
+          revision: record ? (record.revision ?? 0) : undefined,
           employee_id: s("employee_id"),
           date: s("date"),
           start: s("start"),
@@ -66,6 +67,7 @@ export default function EditorDialog({
           );
         await store.save("employees", {
           id: old?.id || uid(),
+          revision: old ? (old.revision ?? 0) : undefined,
           name: s("name"),
           email: s("email").toLowerCase(),
           department: s("department"),
@@ -85,6 +87,7 @@ export default function EditorDialog({
       } else if (kind === "time") {
         await store.save("time_entries", {
           id: record?.id || uid(),
+          revision: record ? (record.revision ?? 0) : undefined,
           employee_id: s("employee_id"),
           date: s("date"),
           start: s("start"),
@@ -102,6 +105,11 @@ export default function EditorDialog({
                 rate.employee_id === editor.employeeId &&
                 rate.effective_date === s("effective_date"),
             )?.id || uid(),
+          revision: d.pay_rates.find(
+            (rate) =>
+              rate.employee_id === editor.employeeId &&
+              rate.effective_date === s("effective_date"),
+          )?.revision,
           employee_id: editor.employeeId,
           hourly_rate: num("hourly_rate"),
           effective_date: s("effective_date"),
@@ -118,30 +126,7 @@ export default function EditorDialog({
           target = s("target");
         if (target <= addDays(from, 6) && addDays(target, 6) >= from)
           throw Error("Choose a non-overlapping target week.");
-        const shifts = d.shifts.filter(
-          (sh) => sh.date >= from && sh.date <= addDays(from, 6),
-        );
-        if (!shifts.length)
-          throw Error("There are no shifts in this week to copy.");
-        if (store.live) {
-          const { error } = await (
-            await import("@/lib/supabase")
-          ).supabase!.rpc("duplicate_week", { p_from: from, p_target: target });
-          if (error) throw error;
-          await store.reload();
-        } else
-          for (const shift of shifts) {
-            const offset = Math.round(
-              (Date.parse(shift.date) - Date.parse(from)) / 86400000,
-            );
-            await store.save("shifts", {
-              ...shift,
-              id: uid(),
-              date: addDays(target, offset),
-              status: "draft",
-            });
-          }
-        store.notify("Week copied as draft");
+        await store.duplicate(from, target);
       }
       close();
     } catch (e) {
@@ -158,7 +143,7 @@ export default function EditorDialog({
     }
     setBusy(true);
     try {
-      await store.remove("shifts", record.id);
+      await store.remove("shifts", record.id, record.revision);
       close();
     } catch (e) {
       setError((e as Error).message);
@@ -170,6 +155,7 @@ export default function EditorDialog({
     try {
       await store.save("shifts", {
         ...(record as Shift),
+        revision: undefined,
         id: uid(),
         status: "draft",
       });

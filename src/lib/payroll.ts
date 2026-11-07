@@ -1,6 +1,6 @@
 import { Temporal } from "@js-temporal/polyfill";
 import { TimeEntry, PayRate, Rules } from "./types";
-import { bounds, weekStart } from "./time";
+import { addDays, bounds, weekStart } from "./time";
 export interface PayrollRow {
   employee_id: string;
   regular: number;
@@ -30,7 +30,17 @@ export function calculatePayroll(
     approved: boolean;
     start: number;
   }[] = [];
+  const firstRelevant = addDays(weekStart(from, rules.week_starts), -1);
+  const ratesByEmployee = new Map<string, PayRate[]>();
+  for (const rate of [...rates].sort((a, b) =>
+    b.effective_date.localeCompare(a.effective_date),
+  )) {
+    const list = ratesByEmployee.get(rate.employee_id) ?? [];
+    list.push(rate);
+    ratesByEmployee.set(rate.employee_id, list);
+  }
   for (const e of entries) {
+    if (e.date < firstRelevant || e.date > to) continue;
     const b = bounds(e.date, e.start, e.end, zone),
       elapsed = (b.end - b.start) / 3600000,
       paid = Math.max(
@@ -105,13 +115,9 @@ export function calculatePayroll(
     daily.set(dk, used + s.hours);
     weekly.set(wk, weekUsed + candidate);
     if (!included) continue;
-    const rate = rates
-      .filter(
-        (r) => r.employee_id === s.employee_id && r.effective_date <= s.date,
-      )
-      .sort((a, b) =>
-        b.effective_date.localeCompare(a.effective_date),
-      )[0]?.hourly_rate;
+    const rate = ratesByEmployee
+      .get(s.employee_id)
+      ?.find((r) => r.effective_date <= s.date)?.hourly_rate;
     row.missingRate ||= rate === undefined;
     row.regular += regular;
     row.overtime += overtime;

@@ -1,9 +1,18 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Data, Role, Table, uid } from "./types";
+import { Data, Role, Table } from "./types";
 import { demoData, demoEmployeeId } from "./demo";
 import { supabase, configured } from "./supabase";
-import { bounds } from "./time";
+import {
+  applyMutation,
+  canSave,
+  DEMO_KEY,
+  persistMutation,
+  readDemo,
+  roleData,
+  STALE_EDIT,
+  type Mutation,
+} from "./mutations";
 import {
   credential,
   credentialKey,
@@ -11,7 +20,7 @@ import {
   rotatePasscode,
   ProtectedRole,
 } from "./demo-passcodes";
-import { validateRecord } from "./validation";
+import { validateRecord, validateSettings } from "./validation";
 export function useWorkspace() {
   const [data, setData] = useState<Data | null>(null),
     [role, setRole] = useState<Role | null>(null),
@@ -21,7 +30,8 @@ export function useWorkspace() {
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true),
     [message, setMessage] = useState("");
-  const ready = useRef(false);
+  const dataRef = useRef(data);
+  dataRef.current = data;
   const loadVersion = useRef(0);
   const live = configured;
   const notify = useCallback((text: string) => {
@@ -163,8 +173,7 @@ export function useWorkspace() {
       return () => listener.subscription.unsubscribe();
     }
     try {
-      const saved = localStorage.getItem("gather-demo-v1");
-      setData(saved ? JSON.parse(saved) : demoData());
+      setData(readDemo(localStorage, demoData));
       localStorage.removeItem("gather-demo-role");
       const rawSession = sessionStorage.getItem("gather-demo-session-v2");
       if (rawSession) {
@@ -178,24 +187,11 @@ export function useWorkspace() {
       }
     } catch {
       setError(
-        "Demo data could not be loaded. Clear this site’s demo storage to start again.",
+        "Saved demo data could not be read. It has not been cleared or replaced. Recover or export the existing site storage before making changes.",
       );
     }
-    ready.current = true;
     setLoading(false);
   }, [live, load]);
-  useEffect(() => {
-    if (!live && ready.current && data) {
-      try {
-        localStorage.setItem("gather-demo-v1", JSON.stringify(data));
-        window.dispatchEvent(new Event("gather-updated"));
-      } catch {
-        setError(
-          "Browser storage is full or unavailable. Changes may not survive a reload.",
-        );
-      }
-    }
-  }, [data, live]);
   useEffect(() => {
     if (!live || !role) return;
     const channel = supabase!
@@ -215,10 +211,14 @@ export function useWorkspace() {
   useEffect(() => {
     if (live) return;
     const sync = (event: StorageEvent) => {
-      if (event.key === "gather-demo-v1" && event.newValue) {
+      if (event.key === DEMO_KEY && event.newValue) {
         try {
-          setData(JSON.parse(event.newValue));
-        } catch {}
+          setData(readDemo(localStorage, demoData));
+        } catch {
+          setError(
+            "Another tab saved unreadable demo data. The original storage has not been cleared.",
+          );
+        }
       }
       if (role && role !== "employee" && event.key === credentialKey(role)) {
         setRole(null);
@@ -276,6 +276,7 @@ export function useWorkspace() {
         setError(error.message);
         return;
       }
+      ++loadVersion.current;
       setRole(null);
       setData(null);
     } else {
@@ -284,134 +285,71 @@ export function useWorkspace() {
       setRequestedRole(null);
     }
   }
+  async function demoCommit(command: Mutation) {
+    if (!role) throw Error("Not signed in");
+    if (!navigator.locks)
+      throw Error(
+        "This browser cannot safely coordinate demo edits. Use a recent browser with Web Locks support.",
+      );
+    await navigator.locks.request("gather-demo-write", () => {
+      const next = persistMutation(localStorage, demoData, role, command);
+      dataRef.current = next;
+      setData(next);
+      window.dispatchEvent(new Event("gather-updated"));
+    });
+  }
   async function save(table: Table, record: Data[Table][number]) {
-    if (!data || !role) throw Error("Not signed in");
-    if (
-      role === "employee" ||
-      (role === "accountant" &&
-        !["time_entries", "pay_rates"].includes(table)) ||
-      (role === "manager" && table === "pay_rates")
-    )
+    const current = dataRef.current;
+    if (!current || !role) throw Error("Not signed in");
+    if (!canSave(role, table))
       throw Error("This role cannot make that change.");
-    const value = validateRecord(
-      table,
-      record,
-      data.settings.timezone,
-    ) as Data[Table][number];
-    if (table === "time_entries") {
-      const entry = value as Data["time_entries"][number],
-        b = bounds(entry.date, entry.start, entry.end, data.settings.timezone);
-      if (
-        data.time_entries.some((e) => {
-          if (e.id === entry.id || e.employee_id !== entry.employee_id)
-            return false;
-          const other = bounds(e.date, e.start, e.end, data.settings.timezone);
-          return b.start < other.end && other.start < b.end;
-        })
-      )
-        throw Error(
-          "Actual time entries cannot overlap. Edit the existing entry.",
-        );
-    }
-    if (
-      table === "employees" &&
-      data.employees.some(
-        (e) =>
-          e.id !== value.id &&
-          e.email.toLowerCase() ===
-            (value as Data["employees"][number]).email.toLowerCase(),
-      )
-    )
-      throw Error("An employee with this email already exists.");
     if (live) {
-      const { error } = await supabase!
-        .from(table)
-        .upsert(value as unknown as Record<string, unknown>)
-        .select()
-        .single();
+      applyMutation(current, role, { kind: "save", table, record });
+      const value = validateRecord(
+        table,
+        record,
+        current.settings.timezone,
+      ) as Data[Table][number];
+      const existing = current[table].find((r) => r.id === record.id);
+      if (existing && existing.revision === undefined)
+        throw Error(
+          "Apply database migration 002 before editing live records. No changes were saved.",
+        );
+      const query = existing
+        ? supabase!
+            .from(table)
+            .update(value as unknown as Record<string, unknown>)
+            .eq("id", value.id)
+            .eq("revision", record.revision ?? 0)
+        : supabase!
+            .from(table)
+            .insert(value as unknown as Record<string, unknown>);
+      const { error, data: saved } = await query.select().maybeSingle();
       if (error) throw Error(error.message);
+      if (!saved) throw Error(STALE_EDIT);
       await load();
-    } else {
-      setData((current) => {
-        if (!current) return current;
-        const list = current[table] as { id: string }[];
-        const affected =
-          table === "shifts"
-            ? [
-                (value as Data["shifts"][number]).date,
-                ...current.shifts
-                  .filter((s) => s.id === value.id)
-                  .map((s) => s.date),
-              ]
-            : [];
-        return {
-          ...current,
-          schedule_days:
-            table === "shifts"
-              ? [
-                  ...current.schedule_days.filter(
-                    (d) => !affected.includes(d.date),
-                  ),
-                  ...[...new Set(affected)].map((date) => ({
-                    id:
-                      current.schedule_days.find((d) => d.date === date)?.id ||
-                      uid(),
-                    date,
-                    status: "draft" as const,
-                  })),
-                ]
-              : current.schedule_days,
-          [table]: list.some((r) => r.id === value.id)
-            ? list.map((r) => (r.id === value.id ? value : r))
-            : [...list, value],
-          audit: [
-            {
-              id: uid(),
-              action: list.some((r) => r.id === value.id)
-                ? "Updated"
-                : "Created",
-              entity: table,
-              actor: role,
-              created_at: new Date().toISOString(),
-            },
-            ...current.audit,
-          ],
-        };
-      });
-    }
+    } else await demoCommit({ kind: "save", table, record });
     notify("Changes saved");
   }
-  async function remove(table: Table, id: string) {
+  async function remove(table: Table, id: string, expectedRevision?: number) {
     if (role !== "manager" || table !== "shifts")
       throw Error("Only managers can delete shifts.");
+    const revision =
+      expectedRevision ??
+      dataRef.current?.shifts.find((s) => s.id === id)?.revision ??
+      0;
     if (live) {
-      const { error } = await supabase!.from(table).delete().eq("id", id);
+      const { error, data: saved } = await supabase!
+        .from(table)
+        .delete()
+        .eq("id", id)
+        .eq("revision", revision)
+        .select()
+        .maybeSingle();
       if (error) throw Error(error.message);
+      if (!saved) throw Error(STALE_EDIT);
       await load();
-    } else
-      setData((c) =>
-        c
-          ? {
-              ...c,
-              shifts: c.shifts.filter((s) => s.id !== id),
-              schedule_days: c.schedule_days.map((day) =>
-                c.shifts.some((s) => s.id === id && s.date === day.date)
-                  ? { ...day, status: "draft" as const }
-                  : day,
-              ),
-              audit: [
-                {
-                  id: uid(),
-                  action: "Deleted",
-                  entity: "shifts",
-                  actor: role,
-                  created_at: new Date().toISOString(),
-                },
-                ...c.audit,
-              ],
-            }
-          : c,
-      );
+    } else await demoCommit({ kind: "remove", id, revision });
     notify("Shift deleted");
   }
   async function publish(
@@ -419,15 +357,15 @@ export function useWorkspace() {
     to: string,
     status: Data["schedule_days"][number]["status"] = "published",
   ) {
-    if (role !== "manager" || !data) throw Error("Manager access required");
-    if (
-      !Number.isFinite(Date.parse(from)) ||
-      !Number.isFinite(Date.parse(to)) ||
-      from > to ||
-      (Date.parse(to) - Date.parse(from)) / 86400000 > 366
-    )
-      throw Error("Choose a valid date range of up to one year.");
+    if (role !== "manager" || !dataRef.current)
+      throw Error("Manager access required");
     if (live) {
+      applyMutation(dataRef.current, role, {
+        kind: "publish",
+        from,
+        to,
+        status,
+      });
       const { error } = await supabase!.rpc(
         status === "published" ? "publish_schedule" : "set_schedule_status",
         {
@@ -438,102 +376,48 @@ export function useWorkspace() {
       );
       if (error) throw Error(error.message);
       await load();
-    } else {
-      const days: Data["schedule_days"] = [];
-      for (let d = from; d <= to;) {
-        const old = data.schedule_days.find((x) => x.date === d);
-        days.push({
-          id: old?.id || uid(),
-          date: d,
-          status,
-        });
-        const next = new Date(d + "T12:00:00Z");
-        next.setUTCDate(next.getUTCDate() + 1);
-        d = next.toISOString().slice(0, 10);
-      }
-      setData((c) =>
-        c
-          ? {
-              ...c,
-              shifts: c.shifts.map((s) =>
-                s.date >= from && s.date <= to ? { ...s, status } : s,
-              ),
-              schedule_days: [
-                ...c.schedule_days.filter((s) => s.date < from || s.date > to),
-                ...days,
-              ],
-              audit: [
-                {
-                  id: uid(),
-                  action: "Set " + status + " " + from + " to " + to,
-                  entity: "shifts",
-                  actor: role,
-                  created_at: new Date().toISOString(),
-                },
-                ...c.audit,
-              ],
-            }
-          : c,
-      );
-    }
+    } else await demoCommit({ kind: "publish", from, to, status });
     notify(
       status === "published"
         ? "Schedule published. Employees can see the changes."
         : "Dates marked " + status + ". Employees will see pending dates.",
     );
   }
+  async function duplicate(from: string, target: string) {
+    if (role !== "manager") throw Error("Manager access required");
+    if (live) {
+      const { error } = await supabase!.rpc("duplicate_week", {
+        p_from: from,
+        p_target: target,
+      });
+      if (error) throw Error(error.message);
+      await load();
+    } else await demoCommit({ kind: "duplicate", from, target });
+    notify("Week copied as draft");
+  }
   async function settings(
     table: "company_settings" | "payroll_rules",
     value: Data["settings"] | Data["rules"],
   ) {
-    if (
-      table === "company_settings" &&
-      data &&
-      "timezone" in value &&
-      value.timezone !== data.settings.timezone &&
-      data.time_entries.length
-    )
-      throw Error(
-        "The company timezone is locked once actual time entries exist. A reviewed data migration is required to change it safely.",
-      );
-    if (
-      role === "employee" ||
-      (table === "company_settings" && role !== "manager") ||
-      (table === "payroll_rules" && role !== "accountant")
-    )
-      throw Error("Role not permitted");
+    if (!role || !dataRef.current) throw Error("Not signed in");
     if (live) {
-      const { error } = await supabase!
+      applyMutation(dataRef.current, role, { kind: "settings", table, value });
+      const parsed = validateSettings(table, value);
+      const { error, data: saved } = await supabase!
         .from(table)
-        .update(value as unknown as Record<string, unknown>)
+        .update(parsed)
         .eq("id", "company")
+        .eq("revision", value.revision ?? 0)
         .select()
-        .single();
+        .maybeSingle();
       if (error) throw Error(error.message);
+      if (!saved) throw Error(STALE_EDIT);
       await load();
-    } else
-      setData((c) =>
-        c
-          ? {
-              ...c,
-              [table === "company_settings" ? "settings" : "rules"]: value,
-              audit: [
-                {
-                  id: uid(),
-                  action: "Updated policy",
-                  entity: table,
-                  actor: role!,
-                  created_at: new Date().toISOString(),
-                },
-                ...c.audit,
-              ],
-            }
-          : c,
-      );
+    } else await demoCommit({ kind: "settings", table, value });
     notify("Settings updated");
   }
   return {
-    data,
+    data: data && !live ? roleData(data, role, employeeId) : data,
     role,
     employeeId,
     accountName,
@@ -550,6 +434,7 @@ export function useWorkspace() {
     save,
     remove,
     publish,
+    duplicate,
     settings,
     notify,
     reload: load,

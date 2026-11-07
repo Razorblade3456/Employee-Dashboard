@@ -15,10 +15,20 @@ test("PostgreSQL migration, permissions, publishing, and audit", async (t) => {
         "utf8",
       ),
     );
+    await db.exec(
+      await readFile(
+        new URL(
+          "../supabase/migrations/002_record_revisions.sql",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    );
     const manager = "10000000-0000-4000-8000-000000000001",
       accountant = "10000000-0000-4000-8000-000000000002",
       employee = "10000000-0000-4000-8000-000000000003",
-      other = "10000000-0000-4000-8000-000000000004";
+      other = "10000000-0000-4000-8000-000000000004",
+      managerTwo = "10000000-0000-4000-8000-000000000005";
     for (const [id, email] of [
       [manager, "manager@test.example"],
       [accountant, "accountant@test.example"],
@@ -32,6 +42,21 @@ test("PostgreSQL migration, permissions, publishing, and audit", async (t) => {
     await db.query("select public.bootstrap_role($1,'accountant','5678')", [
       accountant,
     ]);
+    for (const [id, role] of [
+      [managerTwo, "manager"],
+      ["10000000-0000-4000-8000-000000000006", "manager"],
+      ["10000000-0000-4000-8000-000000000007", "manager"],
+      ["10000000-0000-4000-8000-000000000008", "accountant"],
+    ]) {
+      await db.query("insert into auth.users values($1,$2,now())", [
+        id,
+        id + "@test.example",
+      ]);
+      await db.query(
+        "update public.profiles set role=$2::public.app_role where id=$1",
+        [id, role],
+      );
+    }
     async function as(id: string) {
       await db.exec("reset role");
       await db.query("select set_config('request.jwt.claim.sub',$1,false)", [
@@ -243,6 +268,49 @@ test("PostgreSQL migration, permissions, publishing, and audit", async (t) => {
         assert.equal(await count("shifts"), 4);
         await db.exec(
           "select public.publish_schedule('2026-10-23','2026-10-24')",
+        );
+      },
+    );
+    await t.test(
+      "two managers cannot overwrite the same revision; rejected writes retain audit and time",
+      async () => {
+        await as(manager);
+        const row = (
+          await db.query<{ id: string; revision: number }>(
+            "select id,revision from public.shifts limit 1",
+          )
+        ).rows[0];
+        assert.ok(row);
+        const first = await db.query(
+          "update public.shifts set break_minutes=15 where id=$1 and revision=$2 returning revision",
+          [row.id, row.revision],
+        );
+        assert.equal(first.rows.length, 1);
+        await as(managerTwo);
+        const stale = await db.query(
+          "update public.shifts set break_minutes=45 where id=$1 and revision=$2 returning revision",
+          [row.id, row.revision],
+        );
+        assert.equal(stale.rows.length, 0);
+        assert.equal(
+          Number(
+            (
+              await db.query<{ break_minutes: number }>(
+                "select break_minutes from public.shifts where id=$1",
+                [row.id],
+              )
+            ).rows[0].break_minutes,
+          ),
+          15,
+        );
+        await as(accountant);
+        assert.equal(
+          (
+            await db.query(
+              "update public.company_settings set name='Unauthorized' returning id",
+            )
+          ).rows.length,
+          0,
         );
       },
     );

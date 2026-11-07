@@ -18,13 +18,16 @@ import { ThemeController } from "@/lib/use-theme";
 export default function SettingsView({
   store,
   theme,
+  onTutorial,
 }: {
   store: WorkspaceStore;
   theme: ThemeController;
+  onTutorial: () => void;
 }) {
   const d = store.data!,
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [base, setBase] = useState({ settings: d.settings, rules: d.rules });
   async function submit(
     e: React.FormEvent<HTMLFormElement>,
     type: "company" | "rules" | "password" | "code",
@@ -41,14 +44,20 @@ export default function SettingsView({
         today(s("timezone"));
         await store.settings("company_settings", {
           id: "company",
+          revision: base.settings.revision,
           name: s("name").trim(),
           timezone: s("timezone"),
           minimum_staff: num("minimum_staff"),
         });
+        setBase((b) => ({
+          ...b,
+          settings: { ...b.settings, revision: (b.settings.revision ?? 0) + 1 },
+        }));
       }
       if (type === "rules") {
         const rule = {
           id: "company",
+          revision: base.rules.revision,
           location: s("location"),
           weekly_threshold: num("weekly_threshold"),
           daily_threshold: num("daily_threshold"),
@@ -66,6 +75,10 @@ export default function SettingsView({
             "Double-time threshold must be at least the daily overtime threshold.",
           );
         await store.settings("payroll_rules", rule);
+        setBase((b) => ({
+          ...b,
+          rules: { ...b.rules, revision: (b.rules.revision ?? 0) + 1 },
+        }));
       }
       if (type === "password") {
         if (!supabase)
@@ -117,6 +130,15 @@ export default function SettingsView({
   return (
     <div className="settings-layout">
       <div className="settings-main">
+        <section className="panel">
+          <PanelTitle
+            title="How to Use This Dashboard"
+            description="A short, optional guide for your role. Revisit it whenever you need."
+          />
+          <button className="button primary" onClick={onTutorial}>
+            How to Use This Dashboard
+          </button>
+        </section>
         <section className="panel">
           <PanelTitle
             title="Day or night. Your preference."
